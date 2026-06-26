@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DrawSprint</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@300;400;500&display=swap');
+
+  *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+
+  :root {
+    --bg:#0a0a0a; --surface:#111; --accent:#e8ff47;
+    --text:#f0f0f0; --muted:rgba(240,240,240,.35); --danger:#ff4f4f;
+  }
+
+  html, body { width:100%; height:100%; background:var(--bg); color:var(--text); font-family:'Inter',sans-serif; overflow:hidden; }
+
+  /* LOADING */
+  #loading { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; background:var(--bg); z-index:100; transition:opacity .5s ease; }
+  #loading .logo { font-family:'Space Mono',monospace; font-size:clamp(2rem,5vw,3.5rem); font-weight:700; color:var(--accent); }
+  #loading .sub  { font-size:.85rem; color:var(--muted); letter-spacing:.15em; text-transform:uppercase; }
+  .spinner { width:36px; height:36px; border:2px solid rgba(232,255,71,.15); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* SESSION */
+  #session { position:fixed; inset:0; display:flex; flex-direction:row; opacity:0; transition:opacity .6s ease; }
+  #session.visible { opacity:1; }
+
+  /* HUD */
+  #hud { width:220px; min-width:200px; flex-shrink:0; background:#0f0f0f; border-right:1px solid rgba(255,255,255,.07); display:flex; flex-direction:column; justify-content:space-between; padding:24px 20px 28px; z-index:10; overflow:visible; font-size:16.5px; }
+  .logo-small { font-family:'Space Mono',monospace; font-size:1em; font-weight:700; color:var(--accent); }
+  #hud-mid { display:flex; flex-direction:column; align-items:center; gap:24px; width:100%; overflow:visible; }
+
+  /* timer */
+  #timer-wrap { display:flex; flex-direction:column; align-items:center; gap:8px; }
+  #timer-ring  { position:relative; width:110px; height:110px; }
+  #timer-ring svg { transform:rotate(-90deg); overflow:visible; }
+  #ring-bg { fill:none; stroke:rgba(255,255,255,.08); stroke-width:3; }
+  #ring-fg { fill:none; stroke:var(--accent); stroke-width:3; stroke-linecap:round; transition:stroke-dashoffset .95s linear, stroke .3s; }
+  #timer-num { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-family:'Space Mono',monospace; font-size:1.3em; font-weight:700; color:var(--text); }
+  #timer-ring.danger #ring-fg { stroke:var(--danger); }
+  #timer-ring.danger #timer-num { color:var(--danger); }
+  #count-label { font-size:.65em; color:var(--muted); letter-spacing:.1em; text-transform:uppercase; font-family:'Space Mono',monospace; text-align:center; }
+
+  /* meta blocks */
+  #session-meta { width:100%; display:flex; flex-direction:column; gap:8px; }
+  #meta-pair { display:flex; flex-direction:row; gap:8px; width:100%; }
+  .meta-block { flex:1; min-width:0; padding:8px 10px; background:rgba(255,255,255,.04); border-radius:5px; border:1px solid rgba(255,255,255,.06); user-select:none; }
+  .meta-block-label { display:block; font-family:'Space Mono',monospace; font-size:.52em; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin-bottom:3px; line-height:1; }
+  .meta-block-val   { display:block; font-size:.78em; color:var(--text); font-weight:500; line-height:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* arrow buttons row */
+  #meta-arrow-row { display:flex; flex-direction:row; gap:8px; width:100%; }
+  .arrow-btn {
+    flex:1; height:32px;
+    display:inline-flex; align-items:center; justify-content:center;
+    background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.1);
+    border-radius:50px; cursor:pointer; color:var(--text);
+    font-size:.9em; line-height:1;
+    transition:background .15s, border-color .15s, color .15s;
+    user-select:none;
+  }
+  .arrow-btn:hover { background:rgba(232,255,71,.1); border-color:var(--accent); color:var(--accent); }
+
+  /* block-custom rimosso */
+
+  /* HUD SETTINGS PANEL */
+  #hud-settings-panel, #custom-popup {
+    position:absolute; bottom:calc(100% + 8px); left:0;
+    width:210px; background:#1a1a1a; border:1px solid rgba(255,255,255,.1);
+    border-radius:8px; padding:16px; z-index:100;
+    opacity:0; pointer-events:none; transform:translateY(6px);
+    transition:opacity .2s, transform .2s;
+    visibility:hidden;
+  }
+  #hud-settings-panel.open, #custom-popup.open { opacity:1; pointer-events:all; transform:translateY(0); visibility:visible; }
+  .hud-settings-section { margin-bottom:14px; }
+  .hud-settings-section:last-child { margin-bottom:0; }
+  .hud-settings-label { display:block; font-family:'Space Mono',monospace; font-size:.52rem; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+  .hud-chip-row { display:flex; gap:5px; flex-wrap:wrap; }
+  .hud-chip { display:inline-flex; align-items:center; justify-content:center; font-family:'Space Mono',monospace; font-size:.65rem; padding:5px 10px; border-radius:3px; border:1px solid rgba(255,255,255,.12); background:transparent; color:var(--muted); cursor:pointer; transition:all .15s; line-height:1; white-space:nowrap; box-sizing:border-box; }
+  .hud-chip.on { border-color:var(--accent); color:var(--accent); background:rgba(232,255,71,.07); }
+  .hud-chip:hover { border-color:rgba(255,255,255,.3); color:var(--text); }
+  /* apply button inside custom popup */
+  #custom-popup-apply { display:inline-flex; align-items:center; justify-content:center; width:100%; box-sizing:border-box; margin-top:14px; padding:8px 12px; border-radius:4px; border:1px solid var(--accent); background:transparent; color:var(--accent); font-family:'Space Mono',monospace; font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; transition:background .15s; line-height:1; }
+  #custom-popup-apply:hover { background:rgba(232,255,71,.1); }
+
+  /* bottom settings block */
+  #block-hud-settings { display:inline-flex; align-items:center; justify-content:center; width:100%; box-sizing:border-box; padding:9px 12px; background:rgba(255,255,255,.04); border-radius:5px; border:1px solid rgba(255,255,255,.1); cursor:pointer; transition:background .15s, border-color .15s; user-select:none; position:relative; }
+  #block-hud-settings:hover { background:rgba(255,255,255,.08); border-color:rgba(255,255,255,.25); }
+  #block-hud-settings span { font-family:'Space Mono',monospace; font-size:.7em; color:var(--muted); pointer-events:none; letter-spacing:.08em; line-height:1; }
+  #hud-bot { display:flex; flex-direction:column; gap:8px; }
+  .btn { display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box; line-height:1; white-space:nowrap; font-family:'Space Mono',monospace; font-size:.7em; letter-spacing:.08em; text-transform:uppercase; padding:9px 14px; border-radius:4px; border:1px solid rgba(255,255,255,.12); background:transparent; color:var(--text); cursor:pointer; transition:background .15s, border-color .15s, color .15s; width:100%; text-align:center; }
+  .btn:hover { background:rgba(255,255,255,.07); border-color:rgba(255,255,255,.25); }
+  .btn.primary { border-color:var(--accent); color:var(--accent); }
+  .btn.primary:hover { background:rgba(232,255,71,.1); }
+
+  /* IMAGE AREA */
+  #img-area { flex:1; position:relative; background:#080808; overflow:hidden; }
+  #img-bg { position:absolute; inset:0; background-size:contain; background-position:center; background-repeat:no-repeat; filter:brightness(.92) contrast(1.04); cursor:default; transform-origin:center center; will-change:transform; transition:opacity .4s ease; }
+  #img-bg.loading { opacity:0; }
+  #zoom-hint { position:absolute; bottom:18px; left:50%; transform:translateX(-50%); font-family:'Space Mono',monospace; font-size:.6rem; letter-spacing:.12em; text-transform:uppercase; color:rgba(255,255,255,.22); pointer-events:none; transition:opacity 1.2s ease; }
+  #zoom-hint.hidden { opacity:0; }
+
+  /* SETTINGS DRAWER */
+  #settings-overlay { position:fixed; inset:0; z-index:50; display:flex; align-items:flex-end; opacity:0; pointer-events:none; transition:opacity .25s; }
+  #settings-overlay::before { content:''; position:absolute; inset:0; background:rgba(0,0,0,.75); backdrop-filter:blur(6px); pointer-events:none; }
+  #settings-overlay.open { opacity:1; pointer-events:all; }
+  #settings-panel { position:relative; z-index:1; width:100%; background:#161616; border-top:1px solid rgba(255,255,255,.08); padding:28px 32px 36px; transform:translateY(20px); transition:transform .25s; max-height:85vh; overflow-y:auto; }
+  #settings-overlay.open #settings-panel { transform:translateY(0); }
+  .settings-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0 32px; max-width:960px; margin:0 auto; overflow:visible; }
+  .settings-col { padding:12px 0; overflow:visible; }
+  .settings-title { font-family:'Space Mono',monospace; font-size:.65rem; letter-spacing:.18em; text-transform:uppercase; color:var(--muted); margin-bottom:10px; display:block; }
+  .chip-row { display:flex; flex-wrap:wrap; gap:7px; overflow:visible; position:relative; z-index:2; }
+  .chip { display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box; font-family:'Space Mono',monospace; font-size:.7rem; padding:6px 14px; border-radius:3px; border:1px solid rgba(255,255,255,.12); background:transparent; color:var(--muted); cursor:pointer; transition:all .15s; line-height:1; white-space:nowrap; }
+  .chip.on { border-color:var(--accent); color:var(--accent); background:rgba(232,255,71,.07); }
+  .chip:hover { border-color:rgba(255,255,255,.3); color:var(--text); }
+  .settings-actions { display:flex; justify-content:center; gap:12px; margin-top:28px; }
+
+  /* LIBRERIA */
+  #library-section { max-width:960px; margin:24px auto 0; border-top:1px solid rgba(255,255,255,.07); padding-top:24px; }
+  #library-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  #library-header .settings-title { margin-bottom:0; }
+  #library-count { font-family:'Space Mono',monospace; font-size:.6rem; color:var(--muted); }
+  #library-upload-row { display:flex; gap:10px; align-items:center; margin-bottom:16px; }
+  #library-upload-label {
+    display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box; line-height:1; white-space:nowrap; gap:8px;
+    font-family:'Space Mono',monospace; font-size:.7rem; letter-spacing:.08em; text-transform:uppercase;
+    padding:8px 16px; border-radius:4px; border:1px solid rgba(255,255,255,.15);
+    background:transparent; color:var(--text); cursor:pointer; transition:background .15s, border-color .15s;
+  }
+  #library-upload-label:hover { background:rgba(255,255,255,.07); border-color:rgba(255,255,255,.3); }
+  #library-file-input { display:none; }
+  #library-clear { display:inline-flex; align-items:center; justify-content:center; box-sizing:border-box; line-height:1; white-space:nowrap; font-family:'Space Mono',monospace; font-size:.65rem; letter-spacing:.08em; text-transform:uppercase; padding:8px 14px; border-radius:4px; border:1px solid rgba(255,80,80,.3); background:transparent; color:rgba(255,80,80,.7); cursor:pointer; transition:all .15s; margin-left:auto; }
+  #library-clear:hover { background:rgba(255,80,80,.1); border-color:#ff4f4f; color:#ff4f4f; }
+  #library-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(80px,1fr)); gap:8px; max-height:200px; overflow-y:auto; }
+  .lib-thumb {
+    position:relative; aspect-ratio:1; border-radius:4px; overflow:hidden;
+    border:1px solid rgba(255,255,255,.08); background:#1a1a1a; cursor:default;
+  }
+  .lib-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+  .lib-thumb-del {
+    position:absolute; top:3px; right:3px; width:18px; height:18px;
+    background:rgba(0,0,0,.7); border:none; border-radius:50%; cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    font-size:10px; color:#fff; line-height:1; opacity:0; transition:opacity .15s;
+  }
+  .lib-thumb:hover .lib-thumb-del { opacity:1; }
+  #library-empty { font-family:'Space Mono',monospace; font-size:.65rem; color:var(--muted); padding:12px 0; }
+
+  /* FINISHED */
+  #finished { position:fixed; inset:0; background:var(--bg); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; z-index:80; opacity:0; pointer-events:none; transition:opacity .5s; }
+  #finished.visible { opacity:1; pointer-events:all; }
+  #finished .big { font-family:'Space Mono',monospace; font-size:clamp(2rem,6vw,4rem); font-weight:700; color:var(--accent); }
+  #finished p { color:var(--muted); font-size:.9rem; }
+
+  /* PAUSE */
+  #pause-overlay { position:fixed; inset:0; background:rgba(10,10,10,.75); backdrop-filter:blur(12px); display:flex; align-items:center; justify-content:center; z-index:40; opacity:0; pointer-events:none; transition:opacity .2s; }
+  #pause-overlay.visible { opacity:1; pointer-events:all; }
+  #pause-overlay span { font-family:'Space Mono',monospace; font-size:1.2rem; letter-spacing:.2em; text-transform:uppercase; color:var(--muted); }
+
+  /* COOKIE BANNER */
+  #cookie-banner {
+    position:fixed; bottom:0; left:0; right:0; z-index:999;
+    background:#0f0f0f; border-top:1px solid rgba(232,255,71,.25);
+    padding:24px 32px 28px;
+    display:flex; flex-direction:column; gap:16px;
+    transform:translateY(0); transition:transform .4s ease, opacity .4s ease;
+  }
+  #cookie-banner.hidden { transform:translateY(110%); opacity:0; pointer-events:none; }
+  #cookie-banner-top { display:flex; align-items:flex-start; gap:16px; }
+  #cookie-icon { font-size:2rem; flex-shrink:0; line-height:1; margin-top:2px; }
+  #cookie-text { display:flex; flex-direction:column; gap:6px; }
+  #cookie-title { font-family:'Space Mono',monospace; font-size:.9rem; font-weight:700; color:var(--accent); letter-spacing:.05em; }
+  #cookie-body { font-size:.78rem; color:var(--muted); line-height:1.6; max-width:680px; }
+  #cookie-body a { color:rgba(232,255,71,.6); text-decoration:underline; }
+  #cookie-btns { display:flex; gap:12px; justify-content:flex-end; flex-wrap:wrap; }
+  #cookie-accept {
+    display:inline-flex; align-items:center; justify-content:center;
+    font-family:'Space Mono',monospace; font-size:.85rem; font-weight:700;
+    letter-spacing:.06em; text-transform:uppercase;
+    padding:14px 32px; border-radius:4px;
+    background:var(--accent); border:2px solid var(--accent);
+    color:#0a0a0a; cursor:pointer; transition:all .15s; line-height:1;
+    white-space:nowrap;
+  }
+  #cookie-accept:hover { background:#fff; border-color:#fff; }
+  #cookie-reject {
+    display:inline-flex; align-items:center; justify-content:center;
+    font-family:'Space Mono',monospace; font-size:.85rem; font-weight:700;
+    letter-spacing:.06em; text-transform:uppercase;
+    padding:14px 32px; border-radius:4px;
+    background:transparent; border:2px solid rgba(255,255,255,.2);
+    color:var(--muted); cursor:pointer; transition:all .15s; line-height:1;
+    white-space:nowrap;
+  }
+  #cookie-reject:hover { border-color:rgba(255,255,255,.5); color:var(--text); }
+  @media (max-width:600px) {
+    #cookie-banner { padding:20px 18px 24px; }
+    #cookie-btns { justify-content:stretch; }
+    #cookie-accept, #cookie-reject { flex:1; }
+  }
+
+  @media (max-width:700px) {
+    .settings-grid { grid-template-columns:1fr 1fr; }
+    #session { flex-direction:column; }
+    #hud { width:100%; min-width:unset; padding:12px 16px; border-right:none; border-bottom:1px solid rgba(255,255,255,.07); }
+  }
+</style>
+</head>
+<body>
+
+<!-- COOKIE BANNER -->
+<div id="cookie-banner">
+  <div id="cookie-banner-top">
+    <div id="cookie-icon">✏️</div>
+    <div id="cookie-text">
+      <div id="cookie-title">Ehi, prima di disegnare — un secondo.</div>
+      <div id="cookie-body">
+        Come ogni sito serio (e anche quelli meno seri), DrawSprint usa i cookie.<br>
+        Quelli tecnici ci sono sempre — servono per ricordare le tue impostazioni. Quelli pubblicitari, invece, li usiamo solo se ci dai il permesso: in cambio ci aiuti a tenere il sito vivo e gratuito.<br>
+        Niente tracciamento invasivo, niente dati venduti, promessa da artista. 🎨<br>
+        <a href="#" id="cookie-policy-link">Leggi la cookie policy completa</a>
+      </div>
+    </div>
+  </div>
+  <div id="cookie-btns">
+    <button id="cookie-reject">✕ Rifiuta</button>
+    <button id="cookie-accept">✓ Accetta e disegna</button>
+  </div>
+</div>
+
+<!-- LOADING -->
+<div id="loading">
+  <div class="logo">DrawSprint</div>
+  <div class="sub">Caricamento sessione…</div>
+  <div class="spinner"></div>
+</div>
+
+<!-- SESSION -->
+<div id="session">
+  <div id="hud">
+    <div class="logo-small">DrawSprint</div>
+    <div id="hud-mid">
+      <div id="timer-wrap">
+        <div id="timer-ring">
+          <svg viewBox="0 0 100 100" width="110" height="110">
+            <circle id="ring-bg" cx="50" cy="50" r="44"/>
+            <circle id="ring-fg" cx="50" cy="50" r="44"/>
+          </svg>
+          <div id="timer-num">—</div>
+        </div>
+        <div id="count-label">immagine <span id="img-count">1</span> / <span id="img-total">?</span></div>
+      </div>
+      <div id="session-meta">
+        <div id="meta-pair">
+          <div class="meta-block" id="block-cat">
+            <span class="meta-block-label">Categoria</span>
+            <span class="meta-block-val" id="info-cat">—</span>
+          </div>
+          <div class="meta-block" id="block-time">
+            <span class="meta-block-label">Tempo</span>
+            <span class="meta-block-val" id="info-dur">—</span>
+          </div>
+        </div>
+        <div id="meta-arrow-row">
+          <button class="arrow-btn" id="btn-next-cat" title="Prossima categoria">→</button>
+          <button class="arrow-btn" id="btn-next-time" title="Prossimo tempo">→</button>
+        </div>
+      </div>
+    </div>
+    <div id="hud-bot">
+      <div style="position:relative;">
+        <button class="btn" id="btn-custom" style="border-color:rgba(232,255,71,.35);color:var(--accent);">Custom</button>
+        <div id="custom-popup">
+          <div class="hud-settings-section">
+            <span class="hud-settings-label" id="cp-lbl-cat">Categoria</span>
+            <div class="hud-chip-row" id="cp-cat-chips"></div>
+          </div>
+          <div class="hud-settings-section">
+            <span class="hud-settings-label" id="cp-lbl-time">Tempo</span>
+            <div class="hud-chip-row" id="cp-time-chips"></div>
+          </div>
+          <div class="hud-settings-section">
+            <span class="hud-settings-label" id="cp-lbl-count">Immagini</span>
+            <div class="hud-chip-row" id="cp-count-chips"></div>
+          </div>
+          <button id="custom-popup-apply">Applica →</button>
+        </div>
+      </div>
+      <button class="btn primary" id="btn-skip">Avanti →</button>
+      <button class="btn" id="btn-pause">Pausa</button>
+      <div style="position:relative;">
+        <div id="block-hud-settings"><span id="lbl-settings">⚙ Impostazioni</span></div>
+        <div id="hud-settings-panel">
+          <div class="hud-settings-section">
+            <span class="hud-settings-label" id="lbl-lang-title">Lingua</span>
+            <div class="hud-chip-row">
+              <button class="hud-chip" data-lang="it">IT</button>
+              <button class="hud-chip" data-lang="en">EN</button>
+              <button class="hud-chip" data-lang="es">ES</button>
+              <button class="hud-chip" data-lang="fr">FR</button>
+            </div>
+          </div>
+          <div class="hud-settings-section">
+            <span class="hud-settings-label" id="lbl-size-title">Testo</span>
+            <div class="hud-chip-row">
+              <button class="hud-chip" data-size="s">S</button>
+              <button class="hud-chip" data-size="m">M</button>
+              <button class="hud-chip" data-size="l">L</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="img-area">
+    <div id="img-bg"></div>
+    <div id="zoom-hint">rotella per zoomare · trascina per scorrere</div>
+  </div>
+</div>
+
+<!-- PAUSE -->
+<div id="pause-overlay"><span>In pausa — clicca per riprendere</span></div>
+
+<!-- FINISHED -->
+<div id="finished">
+  <div class="big">Sessione finita.</div>
+  <p id="finished-stats"></p>
+  <button class="btn primary" id="btn-restart" style="pointer-events:all;margin-top:12px">Nuova sessione</button>
+</div>
+
+<!-- SETTINGS DRAWER -->
+<div id="settings-overlay">
+  <div id="settings-panel">
+    <div class="settings-grid">
+      <div class="settings-col">
+        <span class="settings-title">Categoria</span>
+        <div class="chip-row" id="cat-chips"></div>
+      </div>
+      <div class="settings-col">
+        <span class="settings-title">Tempo per immagine</span>
+        <div class="chip-row" id="time-chips"></div>
+      </div>
+      <div class="settings-col">
+        <span class="settings-title">Numero di immagini</span>
+        <div class="chip-row" id="count-chips"></div>
+      </div>
+    </div>
+
+    <!-- LIBRERIA PERSONALE -->
+    <div id="library-section">
+      <div id="library-header">
+        <div class="settings-title">Libreria personale <span id="library-count"></span></div>
+        <button id="library-clear">Svuota libreria</button>
+      </div>
+      <div id="library-upload-row">
+        <label id="library-upload-label" for="library-file-input">
+          + Aggiungi immagini
+        </label>
+        <input type="file" id="library-file-input" accept="image/*" multiple>
+      </div>
+      <div id="library-grid"></div>
+      <div id="library-empty" style="display:none">Nessuna immagine salvata. Aggiungine alcune!</div>
+    </div>
+
+    <div class="settings-actions">
+      <button class="btn" id="btn-close-settings">Annulla</button>
+      <button class="btn primary" id="btn-apply-settings">Applica e ricomincia</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const PEXELS_KEY = 'btIrmBh09tPMG1ettooi9fpvTyM92W9O04ytYV6Zu7Mq2dhJ2OCm9H6u';
+const LIBRARY_KEY = 'drawsprint_library';
+
+// ── IMMAGINI PERSONALI ────────────────────────────────────────────────────────
+// Metti i file nella cartella "images/" accanto a questo HTML.
+// Aggiungi il nome di ogni file qui sotto, poi salva.
+const MY_IMAGES = [
+  // 'images/mia-foto-1.jpg',
+  // 'images/mia-foto-2.jpg',
+  // 'images/mia-foto-3.jpg',
+];
+
+const CATEGORIES = {
+  'Visi':        ['portrait face','close up face','human face expression','face lighting photography'],
+  'Mani':        ['hands closeup','hand gesture','hands detail photography'],
+  'Pose':        ['full body pose','person standing pose','human figure photography'],
+  'Figura':      ['figure photography','body movement','dance pose photography'],
+  'Espressioni': ['face expression emotion','portrait emotion','candid portrait'],
+  'Casuali':     ['portrait','figure','hands','face expression','body pose']
+};
+const TIME_OPTIONS  = [15, 30, 60, 120, 300];
+const COUNT_OPTIONS = [5, 10, 15, 20, 30];
+
+function pickRandom(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function fmt(s) { return s < 60 ? `${s}s` : `${Math.floor(s/60)}m${s%60?s%60+'s':''}`; }
+function nextInArray(arr, cur) { return arr[(arr.indexOf(cur)+1) % arr.length]; }
+function shuffle(arr) { return arr.slice().sort(() => Math.random()-.5); }
+
+let cfg = {
+  category:     pickRandom(Object.keys(CATEGORIES)),
+  timePerImage: pickRandom(TIME_OPTIONS),
+  totalImages:  pickRandom(COUNT_OPTIONS)
+};
+
+let images=[], imgIndex=0, timeLeft=0, timerId=null, paused=false, sessionDone=false;
+
+// ── LIBRERIA ──────────────────────────────────────────────────────────────────
+function loadLibrary() {
+  try { return JSON.parse(localStorage.getItem(LIBRARY_KEY) || '[]'); }
+  catch { return []; }
+}
+function saveLibrary(lib) {
+  try { localStorage.setItem(LIBRARY_KEY, JSON.stringify(lib)); } catch(e) {
+    alert('Spazio esaurito. Rimuovi alcune immagini dalla libreria.');
+  }
+}
+
+function renderLibrary() {
+  const lib = loadLibrary();
+  const grid  = document.getElementById('library-grid');
+  const empty = document.getElementById('library-empty');
+  const count = document.getElementById('library-count');
+  count.textContent = lib.length ? `(${lib.length})` : '';
+  grid.innerHTML = '';
+  if (!lib.length) { empty.style.display='block'; return; }
+  empty.style.display = 'none';
+  lib.forEach((item, i) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'lib-thumb';
+    const img = document.createElement('img');
+    img.src = item.data;
+    img.loading = 'lazy';
+    const del = document.createElement('button');
+    del.className = 'lib-thumb-del';
+    del.textContent = '×';
+    del.title = 'Rimuovi';
+    del.addEventListener('click', () => {
+      const l = loadLibrary();
+      l.splice(i, 1);
+      saveLibrary(l);
+      renderLibrary();
+    });
+    wrap.appendChild(img);
+    wrap.appendChild(del);
+    grid.appendChild(wrap);
+  });
+}
+
+// file upload → base64
+document.getElementById('library-file-input').addEventListener('change', async (e) => {
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
+  const lib = loadLibrary();
+  for (const file of files) {
+    const data = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+    lib.push({ data, name: file.name });
+  }
+  saveLibrary(lib);
+  renderLibrary();
+  e.target.value = '';
+});
+
+document.getElementById('library-clear').addEventListener('click', () => {
+  if (!confirm('Svuotare tutta la libreria personale?')) return;
+  saveLibrary([]);
+  renderLibrary();
+});
+
+// ── PEXELS ────────────────────────────────────────────────────────────────────
+async function fetchImages(category, total) {
+  const query   = encodeURIComponent(pickRandom(CATEGORIES[category]));
+  const perPage = Math.min(total, 30);
+  const page    = Math.floor(Math.random()*3)+1;
+  const res = await fetch(
+    `https://api.pexels.com/v1/search?query=${query}&per_page=${perPage}&page=${page}&orientation=portrait`,
+    { headers:{ Authorization: PEXELS_KEY } }
+  );
+  if (!res.ok) throw new Error('Pexels API error '+res.status);
+  const data = await res.json();
+  return data.photos.sort(()=>Math.random()-.5).map(p=>p.src.large2x||p.src.large);
+}
+
+// mescola pexels + libreria personale + immagini native
+async function buildImagePool(category, total) {
+  const lib    = loadLibrary().map(i => i.data);
+  let pexels   = [];
+  try { pexels = await fetchImages(category, total); } catch(e) { console.warn('Pexels non disponibile', e); }
+  const pool   = shuffle([...pexels, ...lib, ...MY_IMAGES]);
+  return pool.length ? pool : [];
+}
+
+// ── TIMER RING ────────────────────────────────────────────────────────────────
+const ring     = document.getElementById('ring-fg');
+const ringEl   = document.getElementById('timer-ring');
+const timerNum = document.getElementById('timer-num');
+const C = 2*Math.PI*44;
+ring.style.strokeDasharray  = C;
+ring.style.strokeDashoffset = 0;
+
+function updateRing(current, total) {
+  ring.style.strokeDashoffset = C*(1-current/total);
+  timerNum.textContent = fmt(current);
+  ringEl.classList.toggle('danger', current<=5 && current>0);
+}
+
+// ── IMAGE ─────────────────────────────────────────────────────────────────────
+const imgBg = document.getElementById('img-bg');
+function showImage(url) {
+  imgBg.classList.add('loading');
+  const img = new Image();
+  img.onload  = () => { imgBg.style.backgroundImage=`url('${url}')`; imgBg.classList.remove('loading'); };
+  img.onerror = () => imgBg.classList.remove('loading');
+  img.src = url;
+}
+
+// ── SESSION ───────────────────────────────────────────────────────────────────
+function startTimer() {
+  clearInterval(timerId);
+  timeLeft = cfg.timePerImage;
+  updateRing(timeLeft, cfg.timePerImage);
+  timerId = setInterval(() => {
+    if (paused) return;
+    timeLeft--;
+    updateRing(timeLeft, cfg.timePerImage);
+    if (timeLeft<=0) nextImage();
+  }, 1000);
+}
+
+function nextImage() {
+  imgIndex++;
+  document.getElementById('img-count').textContent = imgIndex+1;
+  if (imgIndex>=images.length) { endSession(); return; }
+  showImage(images[imgIndex]);
+  resetZoom();
+  startTimer();
+}
+
+function endSession() {
+  clearInterval(timerId);
+  sessionDone = true;
+  const lib = loadLibrary();
+  const src = lib.length ? 'Pexels + libreria' : 'Pexels';
+  document.getElementById('finished-stats').textContent =
+    `${images.length} immagini · ${fmt(cfg.timePerImage)} ciascuna · ${cfg.category} · ${src}`;
+  document.getElementById('finished').classList.add('visible');
+}
+
+async function startSession() {
+  sessionDone=false; paused=false; imgIndex=0;
+  document.getElementById('finished').classList.remove('visible');
+  document.getElementById('pause-overlay').classList.remove('visible');
+  document.getElementById('info-cat').textContent  = cfg.category;
+  document.getElementById('info-dur').textContent  = fmt(cfg.timePerImage);
+  document.getElementById('img-total').textContent = cfg.totalImages;
+  document.getElementById('img-count').textContent = 1;
+
+  const loadEl = document.getElementById('loading');
+  loadEl.style.opacity='1'; loadEl.style.pointerEvents='all';
+  loadEl.querySelector('.sub').textContent='Caricamento immagini…';
+
+  try {
+    images = await buildImagePool(cfg.category, cfg.totalImages);
+    if (!images.length) throw new Error('Nessuna immagine disponibile');
+  } catch(e) {
+    loadEl.querySelector('.sub').textContent='Errore: '+e.message;
+    return;
+  }
+
+  loadEl.style.opacity='0'; loadEl.style.pointerEvents='none';
+  document.getElementById('session').classList.add('visible');
+  showImage(images[0]);
+  startTimer();
+}
+
+// ── ZOOM ──────────────────────────────────────────────────────────────────────
+const imgArea  = document.getElementById('img-area');
+const zoomHint = document.getElementById('zoom-hint');
+setTimeout(() => zoomHint.classList.add('hidden'), 5000);
+
+let scale=1, panX=0, panY=0, isPanning=false, panStart={x:0,y:0};
+
+function applyTransform() {
+  imgBg.style.transform=`translate(${panX}px,${panY}px) scale(${scale})`;
+  imgBg.style.cursor = scale>1 ? 'grab' : 'default';
+}
+function resetZoom() {
+  scale=1; panX=0; panY=0;
+  imgBg.style.transition='transform .25s ease';
+  applyTransform();
+  setTimeout(()=>imgBg.style.transition='',260);
+}
+function clampPan() {
+  const maxX=(imgArea.offsetWidth/2)*(scale-1);
+  const maxY=(imgArea.offsetHeight/2)*(scale-1);
+  panX=Math.max(-maxX,Math.min(maxX,panX));
+  panY=Math.max(-maxY,Math.min(maxY,panY));
+}
+
+imgArea.addEventListener('wheel',(e)=>{
+  e.preventDefault();
+  if (sessionDone) return;
+  const rect=imgArea.getBoundingClientRect();
+  const cx=e.clientX-rect.left-rect.width/2;
+  const cy=e.clientY-rect.top-rect.height/2;
+  const factor=e.deltaY<0?1.015:1/1.015;
+  const ns=Math.min(Math.max(scale*factor,1),8);
+  panX=cx+(panX-cx)*(ns/scale);
+  panY=cy+(panY-cy)*(ns/scale);
+  scale=ns; clampPan(); applyTransform();
+},{passive:false});
+
+imgArea.addEventListener('mousedown',(e)=>{
+  if (scale<=1) return;
+  isPanning=true; panStart={x:e.clientX-panX,y:e.clientY-panY};
+  imgBg.style.cursor='grabbing';
+});
+window.addEventListener('mousemove',(e)=>{
+  if (!isPanning) return;
+  panX=e.clientX-panStart.x; panY=e.clientY-panStart.y;
+  clampPan(); applyTransform();
+});
+window.addEventListener('mouseup',()=>{ isPanning=false; if(scale>1) imgBg.style.cursor='grab'; });
+
+// ── FRECCE CATEGORIA / TEMPO ──────────────────────────────────────────────────
+const catKeys = Object.keys(CATEGORIES);
+
+document.getElementById('btn-next-cat').addEventListener('click',()=>{
+  if (sessionDone) return;
+  cfg.category = nextInArray(catKeys, cfg.category);
+  document.getElementById('info-cat').textContent = cfg.category;
+  buildImagePool(cfg.category, cfg.totalImages).then(imgs=>{
+    images=imgs; imgIndex=0;
+    document.getElementById('img-count').textContent=1;
+    document.getElementById('img-total').textContent=images.length;
+    showImage(images[0]); resetZoom(); startTimer();
+  });
+});
+
+document.getElementById('btn-next-time').addEventListener('click',()=>{
+  if (sessionDone) return;
+  cfg.timePerImage = nextInArray(TIME_OPTIONS, cfg.timePerImage);
+  document.getElementById('info-dur').textContent = fmt(cfg.timePerImage);
+  clearInterval(timerId);
+  timeLeft = cfg.timePerImage;
+  updateRing(timeLeft, cfg.timePerImage);
+  timerId = setInterval(()=>{
+    if (paused) return;
+    timeLeft--; updateRing(timeLeft, cfg.timePerImage);
+    if (timeLeft<=0) nextImage();
+  },1000);
+});
+
+// ── CUSTOM DRAWER ─────────────────────────────────────────────────────────────
+let tmpCfg={};
+const catChips   = document.getElementById('cat-chips');
+const timeChips  = document.getElementById('time-chips');
+const countChips = document.getElementById('count-chips');
+
+function buildChips() {
+  catChips.innerHTML='';
+  catKeys.forEach(cat=>{
+    const c=document.createElement('button'); c.className='chip'+(cat===tmpCfg.category?' on':''); c.textContent=cat;
+    c.onclick=()=>{ tmpCfg.category=cat; buildChips(); }; catChips.appendChild(c);
+  });
+  timeChips.innerHTML='';
+  TIME_OPTIONS.forEach(t=>{
+    const c=document.createElement('button'); c.className='chip'+(t===tmpCfg.timePerImage?' on':''); c.textContent=fmt(t);
+    c.onclick=()=>{ tmpCfg.timePerImage=t; buildChips(); }; timeChips.appendChild(c);
+  });
+  countChips.innerHTML='';
+  COUNT_OPTIONS.forEach(n=>{
+    const c=document.createElement('button');
+    c.className='chip'+(n===tmpCfg.totalImages?' on':'');
+    c.textContent=TRANSLATIONS[currentLang].images(n);
+    c.dataset.count=n;
+    c.onclick=()=>{ tmpCfg.totalImages=n; buildChips(); };
+    countChips.appendChild(c);
+  });
+}
+
+// ── CUSTOM POPUP ──────────────────────────────────────────────────────────────
+const customPopup = document.getElementById('custom-popup');
+let popupCfg = {};
+
+function buildPopupChips() {
+  const cpCat   = document.getElementById('cp-cat-chips');
+  const cpTime  = document.getElementById('cp-time-chips');
+  const cpCount = document.getElementById('cp-count-chips');
+  const T = TRANSLATIONS[currentLang];
+
+  cpCat.innerHTML='';
+  catKeys.forEach(cat=>{
+    const c=document.createElement('button');
+    c.className='hud-chip'+(cat===popupCfg.category?' on':'');
+    c.textContent=cat; c.type='button';
+    c.addEventListener('click',(e)=>{ e.stopPropagation(); popupCfg.category=cat; buildPopupChips(); });
+    cpCat.appendChild(c);
+  });
+
+  cpTime.innerHTML='';
+  TIME_OPTIONS.forEach(t=>{
+    const c=document.createElement('button');
+    c.className='hud-chip'+(t===popupCfg.timePerImage?' on':'');
+    c.textContent=fmt(t); c.type='button';
+    c.addEventListener('click',(e)=>{ e.stopPropagation(); popupCfg.timePerImage=t; buildPopupChips(); });
+    cpTime.appendChild(c);
+  });
+
+  cpCount.innerHTML='';
+  COUNT_OPTIONS.forEach(n=>{
+    const c=document.createElement('button');
+    c.className='hud-chip'+(n===popupCfg.totalImages?' on':'');
+    c.textContent=T.images(n); c.type='button';
+    c.addEventListener('click',(e)=>{ e.stopPropagation(); popupCfg.totalImages=n; buildPopupChips(); });
+    cpCount.appendChild(c);
+  });
+}
+
+document.getElementById('btn-custom').addEventListener('click',(e)=>{
+  e.stopPropagation();
+  popupCfg={...cfg};
+  buildPopupChips();
+  customPopup.classList.toggle('open');
+  if (customPopup.classList.contains('open')) clearInterval(timerId);
+  else if (!sessionDone) startTimer();
+});
+
+document.getElementById('custom-popup-apply').addEventListener('click',(e)=>{
+  e.stopPropagation();
+  cfg={...popupCfg};
+  customPopup.classList.remove('open');
+  startSession();
+});
+
+customPopup.addEventListener('click',(e)=>e.stopPropagation());
+
+document.addEventListener('click',()=>{
+  if (customPopup.classList.contains('open')){
+    customPopup.classList.remove('open');
+    if (!sessionDone) startTimer();
+  }
+  hudSettingsPanel.classList.remove('open');
+});
+
+
+document.getElementById('btn-close-settings').addEventListener('click',()=>{
+  document.getElementById('settings-overlay').classList.remove('open');
+  if (!sessionDone) startTimer();
+});
+document.getElementById('btn-apply-settings').addEventListener('click',()=>{
+  cfg={...tmpCfg};
+  document.getElementById('settings-overlay').classList.remove('open');
+  startSession();
+});
+
+// ── PAUSA / SKIP ──────────────────────────────────────────────────────────────
+const pauseOverlay = document.getElementById('pause-overlay');
+function togglePause() {
+  if (sessionDone) return;
+  paused=!paused;
+  document.getElementById('btn-pause').textContent=paused?'Riprendi':'Pausa';
+  pauseOverlay.classList.toggle('visible',paused);
+}
+document.getElementById('btn-pause').addEventListener('click',togglePause);
+pauseOverlay.addEventListener('click',togglePause);
+document.getElementById('btn-skip').addEventListener('click',()=>{
+  if (sessionDone) return; paused=false; pauseOverlay.classList.remove('visible'); nextImage();
+});
+document.getElementById('btn-restart').addEventListener('click',()=>{
+  cfg={category:pickRandom(catKeys),timePerImage:pickRandom(TIME_OPTIONS),totalImages:pickRandom(COUNT_OPTIONS)};
+  startSession();
+});
+document.addEventListener('keydown',e=>{
+  if (e.code==='Space'){e.preventDefault();togglePause();}
+  if (e.code==='ArrowRight'){if(!sessionDone)nextImage();}
+  if (e.code==='KeyC'){openCustomDrawer();}
+});
+
+// ── LINGUA & TESTO ────────────────────────────────────────────────────────────
+const TRANSLATIONS = {
+  it: {
+    settings:'⚙ Impostazioni', lang:'Lingua', size:'Testo',
+    category:'Categoria', time:'Tempo', image:'immagine', of:'/',
+    skip:'Avanti →', pause:'Pausa', resume:'Riprendi',
+    custom:'Custom', apply:'Applica e ricomincia', cancel:'Annulla',
+    catLabel:'Categoria', timeLabel:'Tempo per immagine', countLabel:'Numero di immagini',
+    libTitle:'Libreria personale', libAdd:'+ Aggiungi immagini', libClear:'Svuota libreria',
+    libEmpty:'Nessuna immagine salvata. Aggiungine alcune!',
+    done:'Sessione finita.', newSession:'Nuova sessione',
+    loading:'Caricamento immagini…', zoomHint:'rotella per zoomare · trascina per scorrere',
+    images:n=>n+' immagini',
+  },
+  en: {
+    settings:'⚙ Settings', lang:'Language', size:'Text',
+    category:'Category', time:'Time', image:'image', of:'/',
+    skip:'Next →', pause:'Pause', resume:'Resume',
+    custom:'Custom', apply:'Apply & restart', cancel:'Cancel',
+    catLabel:'Category', timeLabel:'Time per image', countLabel:'Number of images',
+    libTitle:'Personal library', libAdd:'+ Add images', libClear:'Clear library',
+    libEmpty:'No saved images. Add some!',
+    done:'Session complete.', newSession:'New session',
+    loading:'Loading images…', zoomHint:'scroll to zoom · drag to pan',
+    images:n=>n+' images',
+  },
+  es: {
+    settings:'⚙ Ajustes', lang:'Idioma', size:'Texto',
+    category:'Categoría', time:'Tiempo', image:'imagen', of:'/',
+    skip:'Siguiente →', pause:'Pausa', resume:'Continuar',
+    custom:'Custom', apply:'Aplicar y reiniciar', cancel:'Cancelar',
+    catLabel:'Categoría', timeLabel:'Tiempo por imagen', countLabel:'Número de imágenes',
+    libTitle:'Biblioteca personal', libAdd:'+ Agregar imágenes', libClear:'Vaciar biblioteca',
+    libEmpty:'No hay imágenes guardadas. ¡Agrega algunas!',
+    done:'Sesión terminada.', newSession:'Nueva sesión',
+    loading:'Cargando imágenes…', zoomHint:'rueda para zoom · arrastra para mover',
+    images:n=>n+' imágenes',
+  },
+  fr: {
+    settings:'⚙ Réglages', lang:'Langue', size:'Texte',
+    category:'Catégorie', time:'Durée', image:'image', of:'/',
+    skip:'Suivant →', pause:'Pause', resume:'Reprendre',
+    custom:'Custom', apply:'Appliquer et relancer', cancel:'Annuler',
+    catLabel:'Catégorie', timeLabel:'Durée par image', countLabel:"Nombre d'images",
+    libTitle:'Bibliothèque perso', libAdd:'+ Ajouter des images', libClear:'Vider la bibliothèque',
+    libEmpty:'Aucune image sauvegardée. Ajoutez-en !',
+    done:'Session terminée.', newSession:'Nouvelle session',
+    loading:'Chargement des images…', zoomHint:'molette pour zoomer · glisser pour parcourir',
+    images:n=>n+' images',
+  },
+};
+
+const TEXT_SCALES = { s:1, m:1.2, l:1.45 };
+
+let currentLang = localStorage.getItem('ds_lang') || 'it';
+let currentSize = localStorage.getItem('ds_size') || 'm';
+
+function applyLang() {
+  const T = TRANSLATIONS[currentLang];
+  document.getElementById('lbl-settings').textContent      = T.settings;
+  document.getElementById('lbl-lang-title').textContent    = T.lang;
+  document.getElementById('lbl-size-title').textContent    = T.size;
+  document.getElementById('info-cat').closest('.meta-block').querySelector('.meta-block-label').textContent = T.category;
+  document.getElementById('info-dur').closest('.meta-block').querySelector('.meta-block-label').textContent = T.time;
+  document.getElementById('btn-skip').textContent = T.skip;
+  document.getElementById('btn-pause').textContent         = paused ? T.resume : T.pause;
+  document.getElementById('btn-apply-settings').textContent = T.apply;
+  document.getElementById('btn-close-settings').textContent = T.cancel;
+  document.getElementById('zoom-hint').textContent         = T.zoomHint;
+  document.getElementById('btn-restart').textContent       = T.newSession;
+  // drawer labels
+  document.querySelectorAll('.settings-col .settings-title').forEach((el,i)=>{
+    el.textContent = [T.catLabel, T.timeLabel, T.countLabel][i] || el.textContent;
+  });
+  document.querySelector('#library-header .settings-title').textContent = T.libTitle;
+  document.getElementById('library-upload-label').textContent = T.libAdd;
+  document.getElementById('library-clear').textContent     = T.libClear;
+  document.getElementById('library-empty').textContent     = T.libEmpty;
+  document.getElementById('finished').querySelector('.big').textContent = T.done;
+  // count chips re-label
+  document.querySelectorAll('[data-count]').forEach(c=>{
+    c.textContent = T.images(c.dataset.count);
+  });
+  // update count-label
+  const imgCount = document.getElementById('img-count').textContent;
+  const imgTotal = document.getElementById('img-total').textContent;
+  document.getElementById('count-label').innerHTML =
+    `${T.image} <span id="img-count">${imgCount}</span> ${T.of} <span id="img-total">${imgTotal}</span>`;
+  document.documentElement.lang = currentLang;
+}
+
+function applySize() {
+  const scale = TEXT_SCALES[currentSize];
+  // imposta una variabile CSS sul root che scala tutto l'HUD
+  document.documentElement.style.setProperty('--ui-scale', scale);
+  // applica direttamente le dimensioni chiave che non ereditano
+  const hud = document.getElementById('hud');
+  hud.style.fontSize = (scale * 16.5) + 'px';
+  // scala il timer ring
+  const timerRing = document.getElementById('timer-ring');
+  const timerSize = Math.round(110 * scale);
+  timerRing.style.width  = timerSize + 'px';
+  timerRing.style.height = timerSize + 'px';
+  const svg = timerRing.querySelector('svg');
+  if (svg) { svg.setAttribute('width', timerSize); svg.setAttribute('height', timerSize); }
+  // scala font del timer num
+  document.getElementById('timer-num').style.fontSize = Math.round(1.3 * scale * 16) + 'px';
+}
+
+function updateHudChips() {
+  document.querySelectorAll('[data-lang]').forEach(b=>{
+    b.classList.toggle('on', b.dataset.lang === currentLang);
+  });
+  document.querySelectorAll('[data-size]').forEach(b=>{
+    b.classList.toggle('on', b.dataset.size === currentSize);
+  });
+}
+
+// lang chips
+document.querySelectorAll('[data-lang]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    currentLang = btn.dataset.lang;
+    localStorage.setItem('ds_lang', currentLang);
+    updateHudChips(); applyLang();
+  });
+});
+
+// size chips
+document.querySelectorAll('[data-size]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    currentSize = btn.dataset.size;
+    localStorage.setItem('ds_size', currentSize);
+    updateHudChips(); applySize();
+  });
+});
+
+// open/close hud settings panel
+const hudSettingsPanel = document.getElementById('hud-settings-panel');
+document.getElementById('block-hud-settings').addEventListener('click', (e)=>{
+  e.stopPropagation();
+  hudSettingsPanel.classList.toggle('open');
+});
+document.addEventListener('click', ()=> hudSettingsPanel.classList.remove('open'));
+
+// init
+updateHudChips();
+applyLang();
+applySize();
+
+// ── COOKIE BANNER ─────────────────────────────────────────────────────────────
+(function() {
+  const banner  = document.getElementById('cookie-banner');
+  const consent = localStorage.getItem('ds_cookie_consent');
+  if (consent) banner.classList.add('hidden');
+
+  document.getElementById('cookie-accept').addEventListener('click', () => {
+    localStorage.setItem('ds_cookie_consent', 'accepted');
+    banner.classList.add('hidden');
+    // attiva AdSense qui una volta approvato
+  });
+  document.getElementById('cookie-reject').addEventListener('click', () => {
+    localStorage.setItem('ds_cookie_consent', 'rejected');
+    banner.classList.add('hidden');
+  });
+  document.getElementById('cookie-policy-link').addEventListener('click', (e) => {
+    e.preventDefault();
+    alert('Cookie Policy\n\nCookie tecnici: necessari per il funzionamento del sito (impostazioni lingua, dimensione testo, libreria personale). Non richiedono consenso.\n\nCookie pubblicitari (solo se accetti): utilizzati da Google AdSense per mostrare annunci pertinenti. Nessun dato personale viene venduto a terzi.\n\nPuoi revocare il consenso svuotando i dati del browser per questo sito.');
+  });
+})();
+
+startSession();
+</script>
+</body>
+</html>
